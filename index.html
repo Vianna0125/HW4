@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>HW4 Bonus: 智能派單模擬器</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --factory-a: #4a90e2;
+            --factory-b: #50e3c2;
+            --accent: #f5a623;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .dashboard {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 80%;
+            max-width: 800px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .factories {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .factory-lane {
+            flex: 1;
+            background: #e1e4e8;
+            border: 3px dashed #abb2bf;
+            border-radius: 10px;
+            min-height: 150px;
+            padding: 10px;
+            position: relative;
+        }
+
+        .factory-lane h3 { margin-top: 0; }
+
+        .queue-slots {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            height: 80px;
+            align-items: center;
+        }
+
+        .unit {
+            width: 60px;
+            height: 60px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: bold;
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes popIn {
+            from { transform: scale(0); }
+            to { transform: scale(1); }
+        }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 25px;
+            font-size: 1rem;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            transition: 0.2s;
+            margin: 0 10px;
+        }
+
+        #start-btn { background: #2ecc71; color: white; }
+        #reset-btn { background: #e74c3c; color: white; }
+        button:hover { opacity: 0.8; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        .log-container {
+            width: 80%;
+            max-width: 800px;
+            background: #2d3436;
+            color: #dfe6e9;
+            padding: 15px;
+            border-radius: 8px;
+            height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            text-align: left;
+        }
+
+        .log-entry { margin-bottom: 5px; border-left: 3px solid var(--accent); padding-left: 10px; }
+    </style>
+</head>
+<body>
+
+    <h2>🏭 智能派單生產線系統</h2>
+
+    <div class="dashboard">
+        <div class="stats">
+            <div>回合: <span id="round-count">0</span></div>
+            <div>💰 剩餘黃金: <span id="gold-count">200</span></div>
+            <div>待處理訂單: <span id="order-count">-</span></div>
+        </div>
+
+        <div class="factories">
+            <div class="factory-lane" id="lane-a">
+                <h3>A 廠 (優先)</h3>
+                <div class="queue-slots" id="queue-a"></div>
+            </div>
+            <div class="factory-lane" id="lane-b">
+                <h3>B 廠</h3>
+                <div class="queue-slots" id="queue-b"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="start-btn" onclick="processNextOrder()">開始下一回合</button>
+            <button id="reset-btn" onclick="resetGame()">重製</button>
+        </div>
+    </div>
+
+    <div class="log-container" id="logs">
+        <div class="log-entry">系統就緒，請點擊「開始」進行派單。</div>
+    </div>
+
+    <script>
+        // 設定與初始資料
+        const unitData = {
+            '劍士': 50,
+            '弓手': 70,
+            '騎士': 80
+        };
+
+        let state = {
+            round: 0,
+            gold: 200,
+            queueA: [],
+            queueB: [],
+            orders: ['劍士', '騎士', '弓手', '劍士', '騎士', '空', '騎士'] // 模擬訂單序列
+        };
+
+        function updateUI() {
+            document.getElementById('round-count').innerText = state.round;
+            document.getElementById('gold-count').innerText = state.gold;
+            document.getElementById('order-count').innerText = state.orders.length > 0 ? state.orders[0] : "無";
+
+            // 更新隊列視覺
+            renderQueue('queue-a', state.queueA, '#4a90e2');
+            renderQueue('queue-b', state.queueB, '#50e3c2');
+        }
+
+        function renderQueue(id, queue, color) {
+            const container = document.getElementById(id);
+            container.innerHTML = '';
+            queue.forEach(unit => {
+                const div = document.createElement('div');
+                div.className = 'unit';
+                div.style.backgroundColor = color;
+                div.innerText = unit;
+                container.appendChild(div);
+            });
+        }
+
+        function log(msg) {
+            const container = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerText = `[R${state.round}] ${msg}`;
+            container.prepend(entry);
+        }
+
+        function processNextOrder() {
+            // 系統邏輯順序判斷
+            
+            // 1. 偶數回合 Dequeue (出列)
+            if (state.round > 0 && state.round % 2 === 0) {
+                if (state.queueA.length > 0) {
+                    const out = state.queueA.shift();
+                    log(`A 廠生產完成：${out} 出列！`);
+                } else {
+                    log(`A 廠沒東西可做 (Underflow 防護成功)`);
+                }
+
+                if (state.queueB.length > 0) {
+                    const out = state.queueB.shift();
+                    log(`B 廠生產完成：${out} 出列！`);
+                } else {
+                    log(`B 廠沒東西可做 (Underflow 防護成功)`);
+                }
+            }
+
+            // 2. 讀取新訂單
+            if (state.orders.length === 0) {
+                log("所有訂單已處理完畢。");
+                document.getElementById('start-btn').disabled = true;
+                return;
+            }
+
+            let currentOrder = state.orders.shift();
+
+            if (currentOrder === '空' || !currentOrder) {
+                log("玩家本回合無動作，單純推進時間。");
+            } else {
+                const cost = unitData[currentOrder];
+
+                // A. 資源檢核
+                if (state.gold < cost) {
+                    log(`黃金不足，無法生產 ${currentOrder}`);
+                } 
+                // B. Overflow 防禦 (產線上限 2)
+                else if (state.queueA.length >= 2 && state.queueB.length >= 2) {
+                    log(`產線全滿！${currentOrder} 訂單拒絕`);
+                }
+                // C. 負載平衡與入列
+                else {
+                    state.gold -= cost;
+                    // 邏輯：選人數少的，一樣多則選 A
+                    if (state.queueA.length <= state.queueB.length) {
+                        state.queueA.push(currentOrder);
+                        log(`${currentOrder} 分派至 A 廠 (剩餘黃金: ${state.gold})`);
+                    } else {
+                        state.queueB.push(currentOrder);
+                        log(`${currentOrder} 分派至 B 廠 (剩餘黃金: ${state.gold})`);
+                    }
+                }
+            }
+
+            state.round++;
+            updateUI();
+        }
+
+        function resetGame() {
+            state = {
+                round: 0,
+                gold: 200,
+                queueA: [],
+                queueB: [],
+                orders: ['劍士', '騎士', '弓手', '劍士', '騎士', '空', '騎士']
+            };
+            document.getElementById('logs').innerHTML = '<div class="log-entry">系統已重製。</div>';
+            document.getElementById('start-btn').disabled = false;
+            updateUI();
+        }
+
+        // 初始化
+        updateUI();
+    </script>
+</body>
+</html>
